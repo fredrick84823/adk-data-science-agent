@@ -15,6 +15,7 @@
 """This file contains the tools used by the database agent."""
 
 import datetime
+import json
 import logging
 import os
 import re
@@ -38,6 +39,31 @@ use_vertexai = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "0") == "1"
 llm_client = Client(vertexai=use_vertexai, project=vertex_project, location=location)
 
 MAX_NUM_ROWS = 80
+
+
+def get_multi_project_config():
+    """Get multi-project configuration from environment."""
+    config_str = os.getenv("BQ_MULTI_PROJECT_CONFIG", "{}")
+    try:
+        return json.loads(config_str)
+    except json.JSONDecodeError as e:
+        logging.warning(f"Invalid BQ_MULTI_PROJECT_CONFIG format: {e}")
+        # Fallback to single project mode
+        data_project = os.getenv("BQ_DATA_PROJECT_ID")
+        dataset_id = os.getenv("BQ_DATASET_ID", "").strip("'\"")
+        if data_project and dataset_id:
+            return {data_project: [dataset_id]}
+        return {}
+
+
+def get_all_projects_and_datasets():
+    """Get all configured projects and their datasets."""
+    config = get_multi_project_config()
+    all_mappings = []
+    for project_id, datasets in config.items():
+        for dataset_id in datasets:
+            all_mappings.append((project_id, dataset_id))
+    return all_mappings
 
 
 def _serialize_value_for_sql(value):
@@ -66,18 +92,42 @@ database_settings = None
 bq_client = None
 
 
-def get_bq_client():
-    """Get BigQuery client."""
+def get_bq_client(project_id=None):
+    """Get BigQuery client for a specific project.
+    
+    Args:
+        project_id (str, optional): Specific project ID. If None, uses default compute project.
+    
+    Returns:
+        bigquery.Client: BigQuery client instance
+    """
     global bq_client
-    if bq_client is None:
-        bq_client = bigquery.Client(
-            project=get_env_var("BQ_COMPUTE_PROJECT_ID"),
-            location=location)
-    return bq_client
+    
+    # Use provided project or default compute project
+    target_project = project_id or get_env_var("BQ_COMPUTE_PROJECT_ID")
+    
+    # Create client with service account if configured
+    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if credentials_path and os.path.exists(credentials_path):
+        from google.oauth2 import service_account
+        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+        return bigquery.Client(
+            project=target_project,
+            location=location,
+            credentials=credentials
+        )
+    else:
+        # Fallback to default credentials (for backward compatibility)
+        if bq_client is None or (project_id and bq_client.project != target_project):
+            bq_client = bigquery.Client(
+                project=target_project,
+                location=location
+            )
+        return bq_client
 
 
 def get_database_settings():
-    """Get database settings."""
+    """Get database settings for all configured projects and datasets."""
     global database_settings
     if database_settings is None:
         database_settings = update_database_settings()
@@ -85,21 +135,58 @@ def get_database_settings():
 
 
 def update_database_settings():
-    """Update database settings."""
+    """Update database settings to include all configured projects and datasets."""
     global database_settings
-    ddl_schema = get_bigquery_schema(
-        dataset_id=get_env_var("BQ_DATASET_ID"),
-        data_project_id=get_env_var("BQ_DATA_PROJECT_ID"),
-        client=get_bq_client(),
-        compute_project_id=get_env_var("BQ_COMPUTE_PROJECT_ID")
-    )
-    database_settings = {
-        "bq_project_id": get_env_var("BQ_DATA_PROJECT_ID"),
-        "bq_dataset_id": get_env_var("BQ_DATASET_ID"),
-        "bq_ddl_schema": ddl_schema,
-        # Include ChaseSQL-specific constants.
-        **chase_constants.chase_sql_constants_dict,
-    }
+    
+    # Get all project-dataset pairs
+    all_mappings = get_all_projects_and_datasets()
+    
+    if not all_mappings:
+        # Fallback to single project mode for backward compatibility
+        ddl_schema = get_bigquery_schema(
+            dataset_id=get_env_var("BQ_DATASET_ID").strip("'\""),
+            data_project_id=get_env_var("BQ_DATA_PROJECT_ID"),
+            client=get_bq_client(),
+            compute_project_id=get_env_var("BQ_COMPUTE_PROJECT_ID")
+        )
+        database_settings = {
+            "bq_project_id": get_env_var("BQ_DATA_PROJECT_ID"),
+            "bq_dataset_id": get_env_var("BQ_DATASET_ID"),
+            "bq_ddl_schema": ddl_schema,
+            **chase_constants.chase_sql_constants_dict,
+        }
+    else:
+        # Multi-project mode
+        all_schemas = []
+        project_info = []
+        
+        for data_project_id, dataset_id in all_mappings:
+            try:
+                compute_project_id = get_env_var("BQ_COMPUTE_PROJECT_ID")
+                client = get_bq_client(compute_project_id)
+                
+                schema = get_bigquery_schema(
+                    dataset_id=dataset_id,
+                    data_project_id=data_project_id,
+                    client=client,
+                    compute_project_id=compute_project_id
+                )
+                
+                all_schemas.append(f"\n--- Project: {data_project_id}, Dataset: {dataset_id} ---\n{schema}")
+                project_info.append({"project": data_project_id, "dataset": dataset_id})
+                
+            except Exception as e:
+                logging.warning(f"Failed to get schema for {data_project_id}.{dataset_id}: {e}")
+        
+        combined_schema = "\n".join(all_schemas)
+        
+        database_settings = {
+            "bq_multi_project": True,
+            "bq_project_datasets": project_info,
+            "bq_ddl_schema": combined_schema,
+            **chase_constants.chase_sql_constants_dict,
+        }
+    
     return database_settings
 
 
@@ -120,7 +207,7 @@ def get_bigquery_schema(dataset_id,
     """
 
     if client is None:
-        client = bigquery.Client(project=compute_project_id, location=location)
+        client = get_bq_client(compute_project_id)
 
     # dataset_ref = client.dataset(dataset_id)
     dataset_ref = bigquery.DatasetReference(data_project_id, dataset_id)
@@ -241,21 +328,23 @@ def initial_bq_nl2sql(
     """
 
     prompt_template = """
-You are a BigQuery SQL expert tasked with answering user's questions about BigQuery tables by generating SQL queries in the GoogleSql dialect.  Your task is to write a Bigquery SQL query that answers the following question while using the provided context.
+You are a BigQuery SQL expert tasked with answering user's questions about BigQuery tables by generating SQL queries in the GoogleSql dialect. You have access to multiple BigQuery projects and datasets. Your task is to write a BigQuery SQL query that answers the following question while using the provided context.
 
 **Guidelines:**
 
-- **Table Referencing:** Always use the full table name with the database prefix in the SQL statement.  Tables should be referred to using a fully qualified name with enclosed in backticks (`) e.g. `project_name.dataset_name.table_name`.  Table names are case sensitive.
+- **Multi-Project Access:** You have access to multiple BigQuery projects and datasets. Always use the full table name with the complete project.dataset.table format.
+- **Table Referencing:** Always use the full table name with the database prefix in the SQL statement. Tables should be referred to using a fully qualified name enclosed in backticks (`) e.g. `project_name.dataset_name.table_name`. Table names are case sensitive.
+- **Cross-Project Queries:** You can join tables across different projects. Always specify the full project.dataset.table path for each table.
 - **Joins:** Join as few tables as possible. When joining tables, ensure all join columns are the same data type. Analyze the database and the table schema provided to understand the relationships between columns and tables.
-- **Aggregations:**  Use all non-aggregated columns from the `SELECT` statement in the `GROUP BY` clause.
+- **Aggregations:** Use all non-aggregated columns from the `SELECT` statement in the `GROUP BY` clause.
 - **SQL Syntax:** Return syntactically and semantically correct SQL for BigQuery with proper relation mapping (i.e., project_id, owner, table, and column relation). Use SQL `AS` statement to assign a new name temporarily to a table column or even a table wherever needed. Always enclose subqueries and union queries in parentheses.
 - **Column Usage:** Use *ONLY* the column names (column_name) mentioned in the Table Schema. Do *NOT* use any other column names. Associate `column_name` mentioned in the Table Schema only to the `table_name` specified under Table Schema.
-- **FILTERS:** You should write query effectively  to reduce and minimize the total rows to be returned. For example, you can use filters (like `WHERE`, `HAVING`, etc. (like 'COUNT', 'SUM', etc.) in the SQL query.
-- **LIMIT ROWS:**  The maximum number of rows returned should be less than {MAX_NUM_ROWS}.
+- **FILTERS:** You should write queries effectively to reduce and minimize the total rows to be returned. For example, you can use filters (like `WHERE`, `HAVING`, etc.) in the SQL query.
+- **LIMIT ROWS:** The maximum number of rows returned should be less than {MAX_NUM_ROWS}.
 
-**Schema:**
+**Available Projects and Datasets:**
 
-The database structure is defined by the following table schemas (possibly with sample rows):
+The database structure is defined by the following table schemas from multiple projects (possibly with sample rows):
 
 ```
 {SCHEMA}
@@ -267,7 +356,7 @@ The database structure is defined by the following table schemas (possibly with 
 {QUESTION}
 ```
 
-**Think Step-by-Step:** Carefully consider the schema, question, guidelines, and best practices outlined above to generate the correct BigQuery SQL.
+**Think Step-by-Step:** Carefully consider the schema from all available projects, the question, guidelines, and best practices outlined above to generate the correct BigQuery SQL. Remember that you can access tables from any of the listed projects and datasets.
 
    """
 
@@ -378,7 +467,10 @@ def run_bigquery_validation(
         return final_result
 
     try:
-        query_job = get_bq_client().query(sql_string)
+        # Determine which project to use for the query execution
+        # For cross-project queries, use the compute project
+        compute_project_id = get_env_var("BQ_COMPUTE_PROJECT_ID")
+        query_job = get_bq_client(compute_project_id).query(sql_string)
         results = query_job.result()  # Get the query results
 
         if results.schema:  # Check if query returned data

@@ -40,7 +40,14 @@ def load_csv_to_bigquery(data_project_id,
         csv_filepath: The path to the CSV file.
     """
 
-    client = bigquery.Client(project=data_project_id)
+    # Use credentials if available
+    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if credentials_path and os.path.exists(credentials_path):
+        from google.oauth2 import service_account
+        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+        client = bigquery.Client(project=data_project_id, credentials=credentials)
+    else:
+        client = bigquery.Client(project=data_project_id)
 
     dataset_ref = client.dataset(dataset_name)
     table_ref = dataset_ref.table(table_name)
@@ -72,7 +79,14 @@ def create_dataset_if_not_exists(compute_project_id,
         data_project_id: GQP Project for BQ data.
         dataset_name: The name of the BigQuery dataset.
     """
-    client = bigquery.Client(project=compute_project_id)
+    # Use credentials if available
+    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if credentials_path and os.path.exists(credentials_path):
+        from google.oauth2 import service_account
+        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+        client = bigquery.Client(project=compute_project_id, credentials=credentials)
+    else:
+        client = bigquery.Client(project=compute_project_id)
     dataset_full_name = f"{data_project_id}.{dataset_name}"
 
     try:

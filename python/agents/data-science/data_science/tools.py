@@ -22,6 +22,7 @@ from google.adk.tools import ToolContext
 from google.adk.tools.agent_tool import AgentTool
 
 from .sub_agents import ds_agent, db_agent
+from .sub_agents.bigquery.tools import get_all_projects_and_datasets, get_multi_project_config
 
 
 async def call_db_agent(
@@ -69,3 +70,25 @@ async def call_ds_agent(
     )
     tool_context.state["ds_agent_output"] = ds_agent_output
     return ds_agent_output
+
+
+def list_available_projects_and_datasets(tool_context: ToolContext) -> str:
+    """Tool to list all available BigQuery projects and datasets."""
+    try:
+        config = get_multi_project_config()
+        if not config:
+            return "No multi-project configuration found. Using single project mode."
+        
+        result = "## Available BigQuery Projects and Datasets:\n\n"
+        for project_id, datasets in config.items():
+            result += f"**Project: `{project_id}`**\n"
+            for dataset in datasets:
+                result += f"  - Dataset: `{dataset}`\n"
+            result += "\n"
+        
+        result += "\n**Note:** You can query tables from any of these projects using the full table reference format: `project_id.dataset_id.table_name`"
+        
+        return result
+        
+    except Exception as e:
+        return f"Error retrieving project information: {str(e)}"

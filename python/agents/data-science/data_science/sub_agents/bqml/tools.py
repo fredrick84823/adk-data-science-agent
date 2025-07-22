@@ -31,7 +31,14 @@ def check_bq_models(dataset_id: str) -> str:
     """
 
     try:
-        client = bigquery.Client()
+        # Use credentials if available
+        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if credentials_path and os.path.exists(credentials_path):
+            from google.oauth2 import service_account
+            credentials = service_account.Credentials.from_service_account_file(credentials_path)
+            client = bigquery.Client(credentials=credentials)
+        else:
+            client = bigquery.Client()
 
         models = client.list_models(dataset_id)
         model_list = []  # Initialize as a list
@@ -55,7 +62,14 @@ def execute_bqml_code(bqml_code: str, project_id: str, dataset_id: str) -> str:
 
     # timeout_seconds = 1500
 
-    client = bigquery.Client(project=project_id)
+    # Use credentials if available
+    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if credentials_path and os.path.exists(credentials_path):
+        from google.oauth2 import service_account
+        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+        client = bigquery.Client(project=project_id, credentials=credentials)
+    else:
+        client = bigquery.Client(project=project_id)
 
     try:
         query_job = client.query(bqml_code)
