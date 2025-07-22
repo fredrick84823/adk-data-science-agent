@@ -355,12 +355,26 @@ def run_bigquery_validation(
     final_result = {"query_result": None, "error_message": None}
 
     # More restrictive check for BigQuery - disallow DML and DDL
-    if re.search(
-        r"(?i)(update|delete|drop|insert|create|alter|truncate|merge)", sql_string
-    ):
+    # Use word boundaries (\b) to match whole words only, not substrings
+    # Also exclude matches inside string literals (basic approach)
+    def contains_disallowed_operations(sql):
+        """Check for disallowed SQL operations while avoiding false positives."""
+        # Simple approach: remove string literals first, then check
+        # This handles most common cases like LIKE '%create%'
+        sql_without_strings = re.sub(r"'[^']*'", "", sql)  # Remove single-quoted strings
+        sql_without_strings = re.sub(r'"[^"]*"', "", sql_without_strings)  # Remove double-quoted strings
+        
+        disallowed_pattern = r"(?i)\b(update|delete|drop|insert|create|alter|truncate|merge)\b"
+        return re.search(disallowed_pattern, sql_without_strings)
+    
+    disallowed_match = contains_disallowed_operations(sql_string)
+    if disallowed_match:
+        matched_operation = disallowed_match.group(1)
         final_result["error_message"] = (
-            "Invalid SQL: Contains disallowed DML/DDL operations."
+            f"Invalid SQL: Contains disallowed DML/DDL operation: {matched_operation.upper()}"
         )
+        logging.warning("SQL validation failed - disallowed operation '%s' found in: %s", 
+                       matched_operation, sql_string[:200] + "..." if len(sql_string) > 200 else sql_string)
         return final_result
 
     try:
