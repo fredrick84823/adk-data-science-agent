@@ -32,7 +32,8 @@ def check_bq_models(dataset_id: str) -> str:
 
     try:
         # Use credentials if available
-        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        from ...utils.utils import get_credentials_path
+        credentials_path = get_credentials_path()
         if credentials_path and os.path.exists(credentials_path):
             from google.oauth2 import service_account
             credentials = service_account.Credentials.from_service_account_file(credentials_path)
@@ -63,7 +64,8 @@ def execute_bqml_code(bqml_code: str, project_id: str, dataset_id: str) -> str:
     # timeout_seconds = 1500
 
     # Use credentials if available
-    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    from ...utils.utils import get_credentials_path
+    credentials_path = get_credentials_path()
     if credentials_path and os.path.exists(credentials_path):
         from google.oauth2 import service_account
         credentials = service_account.Credentials.from_service_account_file(credentials_path)

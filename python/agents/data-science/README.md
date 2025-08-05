@@ -27,6 +27,7 @@ The key features of the Data Science Multi-Agent include:
 *   **Database Interaction (NL2SQL):** Employs a Database Agent to interact with BigQuery using natural language queries, translating them into SQL.
 *   **Data Science Analysis (NL2Py):** Includes a Data Science Agent that performs data analysis and visualization using Python, based on natural language instructions.
 *   **Machine Learning (BQML):** Features a BQML Agent that leverages BigQuery ML for training and evaluating machine learning models.
+*   **CSV Export Functionality:** Enables users to export query results as CSV files that can be downloaded directly from the ADK web interface.
 *   **Code Interpreter Integration:** Supports the use of a Code Interpreter extension in Vertex AI for executing Python code, enabling complex data analysis and manipulation.
 *   **ADK Web GUI:** Offers a user-friendly GUI interface for interacting with the agents.
 *   **Testability:** Includes a comprehensive test suite for ensuring the reliability of the agents.
@@ -163,6 +164,20 @@ The key features of the Data Science Multi-Agent include:
     - Cross-project data analysis and visualization
     - Service account-based authentication for enterprise use
     - Use the `list_available_projects_and_datasets` tool to see available data sources
+
+    ### BigQuery Result Limits
+    
+    **Query Result Limits:**
+    - **Default row limit:** 80 rows per query (defined by `MAX_NUM_ROWS = 80`)
+    - **Automatic LIMIT clause:** If your SQL doesn't include a LIMIT, the system adds `LIMIT 80`
+    - **Schema examples:** Show 5 rows per table for data exploration
+    
+    **Where limits apply:**
+    - SQL generation prompts instruct the LLM to keep results under 80 rows
+    - Query validation automatically adds LIMIT clauses when missing
+    - Result processing truncates output to the first 80 rows
+    
+    **To modify the limit:** Change `MAX_NUM_ROWS` in `data_science/sub_agents/bigquery/tools.py`
 
         You can skip the upload steps if you are using your own data. We recommend not adding any production critical datasets to this sample agent.
         If you wish to use the sample data, continue with the next step.

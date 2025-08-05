@@ -18,6 +18,44 @@ import os
 from vertexai.preview.extensions import Extension
 
 
+def is_cloud_run_environment():
+  """Detects if the code is running in a Cloud Run container.
+  
+  Returns:
+    bool: True if running in Cloud Run, False otherwise.
+  """
+  # Cloud Run sets specific environment variables
+  return (
+    os.getenv('K_SERVICE') is not None or  # Cloud Run service name
+    os.getenv('K_REVISION') is not None or  # Cloud Run revision
+    os.path.exists('/workspace')  # Cloud Run workspace directory
+  )
+
+
+def get_credentials_path():
+  """Gets the appropriate credentials path based on the environment.
+  
+  Returns:
+    str: The path to the service account credentials file, or None if not configured.
+  """
+  credentials_filename = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+  
+  if not credentials_filename:
+    return None
+    
+  if is_cloud_run_environment():
+    # In Cloud Run, use the workspace path
+    if credentials_filename.startswith('/'):
+      # Already an absolute path
+      return credentials_filename
+    else:
+      # Convert relative path to Cloud Run absolute path
+      return f"/workspace/agents/{credentials_filename}"
+  else:
+    # Local development - use relative path or absolute path as-is
+    return credentials_filename
+
+
 def list_all_extensions():
   extensions = Extension.list(location='us-central1')
   for extension in extensions:

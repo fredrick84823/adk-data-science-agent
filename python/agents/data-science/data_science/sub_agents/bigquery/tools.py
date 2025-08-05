@@ -40,7 +40,6 @@ llm_client = Client(vertexai=use_vertexai, project=vertex_project, location=loca
 
 MAX_NUM_ROWS = 80
 
-
 def get_multi_project_config():
     """Get multi-project configuration from environment."""
     config_str = os.getenv("BQ_MULTI_PROJECT_CONFIG", "{}")
@@ -72,9 +71,14 @@ def _serialize_value_for_sql(value):
         return "NULL"
     if isinstance(value, str):
         # Escape single quotes and backslashes for SQL strings.
-        return f"'{value.replace('\\', '\\\\').replace("'", "''")}'"
+        escaped = value.replace('\\', '\\\\')
+        escaped = escaped.replace("'", "''")
+        return f"'{escaped}'"
     if isinstance(value, bytes):
-        return f"b'{value.decode('utf-8', 'replace').replace('\\', '\\\\').replace("'", "''")}'"
+        decoded = value.decode('utf-8', 'replace')
+        decoded = decoded.replace('\\', '\\\\')
+        decoded = decoded.replace("'", "''")
+        return f"b'{decoded}'"
     if isinstance(value, (datetime.datetime, datetime.date, pd.Timestamp)):
         # Timestamps and datetimes need to be quoted.
         return f"'{value}'"
@@ -107,7 +111,8 @@ def get_bq_client(project_id=None):
     target_project = project_id or get_env_var("BQ_COMPUTE_PROJECT_ID")
     
     # Create client with service account if configured
-    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    from ...utils.utils import get_credentials_path
+    credentials_path = get_credentials_path()
     if credentials_path and os.path.exists(credentials_path):
         from google.oauth2 import service_account
         credentials = service_account.Credentials.from_service_account_file(credentials_path)

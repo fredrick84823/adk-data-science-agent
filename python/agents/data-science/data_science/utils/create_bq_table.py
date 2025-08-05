@@ -41,7 +41,8 @@ def load_csv_to_bigquery(data_project_id,
     """
 
     # Use credentials if available
-    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    from .utils import get_credentials_path
+    credentials_path = get_credentials_path()
     if credentials_path and os.path.exists(credentials_path):
         from google.oauth2 import service_account
         credentials = service_account.Credentials.from_service_account_file(credentials_path)
@@ -80,7 +81,8 @@ def create_dataset_if_not_exists(compute_project_id,
         dataset_name: The name of the BigQuery dataset.
     """
     # Use credentials if available
-    credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    from .utils import get_credentials_path
+    credentials_path = get_credentials_path()
     if credentials_path and os.path.exists(credentials_path):
         from google.oauth2 import service_account
         credentials = service_account.Credentials.from_service_account_file(credentials_path)
