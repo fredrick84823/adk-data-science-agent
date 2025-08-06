@@ -27,6 +27,7 @@ The key features of the Data Science Multi-Agent include:
 *   **Database Interaction (NL2SQL):** Employs a Database Agent to interact with BigQuery using natural language queries, translating them into SQL.
 *   **Data Science Analysis (NL2Py):** Includes a Data Science Agent that performs data analysis and visualization using Python, based on natural language instructions.
 *   **Machine Learning (BQML):** Features a BQML Agent that leverages BigQuery ML for training and evaluating machine learning models.
+*   **CSV Export Functionality:** Enables users to export query results as CSV files that can be downloaded directly from the ADK web interface.
 *   **Code Interpreter Integration:** Supports the use of a Code Interpreter extension in Vertex AI for executing Python code, enabling complex data analysis and manipulation.
 *   **ADK Web GUI:** Offers a user-friendly GUI interface for interacting with the agents.
 *   **Testability:** Includes a comprehensive test suite for ensuring the reliability of the agents.
@@ -99,6 +100,9 @@ The key features of the Data Science Multi-Agent include:
     Follow the following steps to set up the remaining environment variables.
 
 5.  **BigQuery Setup:**
+
+    ### Single Project Mode (Default)
+    
     These steps will load the sample data provided in this repository to BigQuery.
     For our sample use case, we are working on the Forecasting Sticker Sales data from Kaggle:
 
@@ -127,6 +131,53 @@ The key features of the Data Science Multi-Agent include:
         export BQ_COMPUTE_PROJECT_ID='YOUR-BQ-COMPUTE-PROJECT-ID'
         export BQ_DATASET_ID='YOUR-DATASET-ID' # leave as 'forecasting_sticker_sales' if using sample data
         ```
+
+    ### Multi-Project Mode (New Feature)
+
+    **NEW:** The agent now supports querying multiple BigQuery projects and datasets simultaneously. This enables cross-project analysis and data federation.
+
+    **Service Account Authentication:**
+    ```bash
+    # Set the path to your service account JSON file
+    GOOGLE_APPLICATION_CREDENTIALS=data_science/credentials/your-service-account.json
+    ```
+
+    **Multi-Project Configuration:**
+    Configure multiple projects and datasets in JSON format:
+    ```bash
+    # JSON format: {"project_id": ["dataset1", "dataset2", ...], ...}
+    BQ_MULTI_PROJECT_CONFIG={"project-1": ["dataset1", "dataset2"], "project-2": ["dataset3"]}
+    ```
+
+    **Example Configuration:**
+    ```bash
+    # Service Account
+    GOOGLE_APPLICATION_CREDENTIALS=data_science/credentials/tagtoo-dxp-c9b718e58e76.json
+    
+    # Multi-project setup
+    BQ_MULTI_PROJECT_CONFIG={"tagtoo-dxp": ["facebook_ad_library", "analytics"], "another-project": ["sales", "marketing"]}
+    ```
+
+    **Features:**
+    - Query tables across multiple projects: `SELECT * FROM project1.dataset1.table1 JOIN project2.dataset2.table2`
+    - Automatic schema discovery for all configured projects
+    - Cross-project data analysis and visualization
+    - Service account-based authentication for enterprise use
+    - Use the `list_available_projects_and_datasets` tool to see available data sources
+
+    ### BigQuery Result Limits
+    
+    **Query Result Limits:**
+    - **Default row limit:** 80 rows per query (defined by `MAX_NUM_ROWS = 80`)
+    - **Automatic LIMIT clause:** If your SQL doesn't include a LIMIT, the system adds `LIMIT 80`
+    - **Schema examples:** Show 5 rows per table for data exploration
+    
+    **Where limits apply:**
+    - SQL generation prompts instruct the LLM to keep results under 80 rows
+    - Query validation automatically adds LIMIT clauses when missing
+    - Result processing truncates output to the first 80 rows
+    
+    **To modify the limit:** Change `MAX_NUM_ROWS` in `data_science/sub_agents/bigquery/tools.py`
 
         You can skip the upload steps if you are using your own data. We recommend not adding any production critical datasets to this sample agent.
         If you wish to use the sample data, continue with the next step.
@@ -192,9 +243,33 @@ from the working directory:
 
 Here's a quick example of how a user might interact with the Data Science Multi-Agent System:
 
-> ´**User:** Hi, What data do you have access to?
+**Single Project Mode:**
+> **User:** Hi, What data do you have access to?
 
 > **Agent:**  I have access to two tables: `train` and `test`. Both tables contain sticker sales data with the following columns: `id`, `date`, `country`, `store`, `product`, and `num_sold`.
+
+**Multi-Project Mode:**
+> **User:** What projects and datasets do I have access to?
+
+> **Agent:** ## Available BigQuery Projects and Datasets:
+>
+> **Project: `tagtoo-dxp`**
+>   - Dataset: `facebook_ad_library`
+>   - Dataset: `analytics`
+>
+> **Project: `another-project`** 
+>   - Dataset: `sales`
+>   - Dataset: `marketing`
+>
+> **Note:** You can query tables from any of these projects using the full table reference format: `project_id.dataset_id.table_name`
+
+> **User:** Show me data from both projects - combine sales data from tagtoo-dxp.analytics with marketing data from another-project.marketing
+
+> **Agent:** I'll query both projects to combine your sales and marketing data.
+>
+> **Result:** [Cross-project query results showing combined data]
+>
+> **Explanation:** The database agent executed a cross-project SQL query joining tables from `tagtoo-dxp.analytics` and `another-project.marketing` to provide the combined analysis you requested.
 
 > **User:** I need more details on the train table. What countries exist? How many stores are there?
 
